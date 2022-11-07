@@ -1,0 +1,58 @@
+version: 2.1
+
+setup: true
+
+orbs:
+  path-filtering: circleci/path-filtering@0.1.3
+  continuation: circleci/continuation@0.3.1
+
+workflows:
+  always-run:
+    jobs:
+      - path-filtering/filter:
+          name: check-updated-files
+          mapping: |
+            libs/.* deploy-everything true
+            infra/.* deploy-infra true
+            infra-multiregion/.* deploy-infra-multiregion true
+            apis/archtype-api/.* deploy-archtype-api true
+            apis/auth/.* deploy-auth true
+            apis/engage-api/.* deploy-engage-api true
+            apis/engage-control-api/.* deploy-engage-control-api true
+            jobs/customer-campaign-match/.* deploy-customer-campaign-match true
+            jobs/engage-delivery/.* deploy-engage-delivery true
+            jobs/action-scheduler/.* deploy-action-scheduler true
+            jobs/action-trigger/.* deploy-action-trigger true
+            jobs/action-identifier/.* deploy-action-identifier true
+            jobs/datalake/.* deploy-datalake true
+          base-revision: << pipeline.git.tag >>
+          config-path: .circleci/continue_config_iq.yml
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - path-filtering/filter:
+          name: check-updated-files
+          mapping: |
+            libs/.* deploy-everything true
+            infra/.* deploy-infra true
+            infra-multiregion/.* deploy-infra-multiregion true
+            apis/archtype-api/.* deploy-archtype-api true
+            apis/auth/.* deploy-auth true
+            apis/engage-api/.* deploy-engage-api true
+            apis/engage-control-api/.* deploy-engage-control-api true
+            jobs/customer-campaign-match/.* deploy-customer-campaign-match true
+            jobs/engage-delivery/.* deploy-engage-delivery true
+            jobs/delivery-sms/.* deploy-delivery-sms true
+            jobs/action-scheduler/.* deploy-action-scheduler true
+            jobs/action-trigger/.* deploy-action-trigger true
+            jobs/action-identifier/.* deploy-action-identifier true
+            jobs/datalake/.* deploy-datalake true
+          base-revision: << pipeline.git.tag >>
+          config-path: .circleci/continue_config_mobi.yml
+          filters:
+            tags:
+              only: /v.*.mobi.*/
+            branches:
+              ignore: /.*/

@@ -1,0 +1,644 @@
+version: 2.1
+
+parameters:
+  deploy-everything:
+    type: boolean
+    default: false
+  deploy-archtype-api:
+    type: boolean
+    default: false
+  deploy-auth:
+    type: boolean
+    default: false
+  deploy-infra:
+    type: boolean
+    default: false
+  deploy-infra-multiregion:
+    type: boolean
+    default: false
+  deploy-engage-api:
+    type: boolean
+    default: false
+  deploy-engage-control-api:
+    type: boolean
+    default: false
+  deploy-customer-campaign-match:
+    type: boolean
+    default: false
+  deploy-engage-delivery:
+    type: boolean
+    default: false
+  deploy-datalake:
+    type: boolean
+    default: false
+  deploy-action-scheduler:
+    type: boolean
+    default: false
+  deploy-action-trigger:
+    type: boolean
+    default: false
+  deploy-action-identifier:
+    type: boolean
+    default: false
+
+orbs:
+  go: circleci/go@1.7.1
+  serverless: circleci/serverless-framework@2.0.0
+  aws-cli: circleci/aws-cli@3.1.1
+
+executors:
+  publish-go:
+    docker:
+      - image: cimg/go:1.18.1
+    environment:
+      AWS_REGION_SA_EAST_1: sa-east-1
+
+references:
+  workspace_root: &workspace_root .
+  attach_workspace: &attach_workspace
+    attach_workspace:
+      at: *workspace_root
+
+jobs:
+  build-go:
+    executor: publish-go
+    parameters:
+      path:
+        type: string
+        default: .
+    steps:
+      - checkout
+      - *attach_workspace
+      - run:
+          name: Build solution
+          command: |
+            cd << parameters.path >>
+            make build
+      - persist_to_workspace:
+          root: *workspace_root
+          paths:
+            - "*"
+  test:
+    executor: publish-go
+    parameters:
+      path:
+        type: string
+        default: .
+    steps:
+      - checkout
+      - run:
+          name: Run tests
+          command: |
+              cd << parameters.path >>
+              make test
+  deploy-serverless:
+    executor: serverless/default
+    parameters:
+      stage:
+        type: string
+        default: DEVELOPMENT
+      path:
+        type: string
+        default: .
+    steps:
+      - checkout
+      - *attach_workspace
+      - aws-cli/setup
+      - serverless/setup
+      - run:
+          name: Deploy
+          command: |
+            export STAGE=<< parameters.stage >>
+            export SERVERLESS_STAGE=`echo $STAGE | awk '$0 == "PRODUCTION" { print "prd" } $0 != "PRODUCTION" { print "dev" }'`
+            export AWS_KEY=AWS_ACCESS_KEY_ID_IQ_SERVERLESS_FRAMEWORK_$STAGE
+            export AWS_SECRET=AWS_SECRET_ACCESS_KEY_IQ_SERVERLESS_FRAMEWORK_$STAGE
+            export AWS_ACCESS_KEY_ID=${!AWS_KEY}
+            export AWS_SECRET_ACCESS_KEY=${!AWS_SECRET}
+            cd << parameters.path >>
+            make serverless-deploy STAGE=$SERVERLESS_STAGE
+  
+workflows:
+  deploy-archtype-api:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-archtype-api >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - build-go:
+          path: "apis/archtype-api/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - test:
+          path: "apis/archtype-api/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "apis/archtype-api/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "apis/archtype-api/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-infra:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-infra >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "infra/"
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "infra/"
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-infra-multiregion:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-infra-multiregion >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "infra-multiregion/"
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "infra-multiregion/"
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-auth:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-auth >>, << pipeline.parameters.deploy-everything >>] 
+    jobs:
+      - build-go:
+          path: "apis/auth/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - test:
+          path: "apis/auth/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "apis/auth"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "apis/auth/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-engage-api:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-engage-api >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - build-go:
+          path: "apis/engage-api/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - test:
+          path: "apis/engage-api/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "apis/engage-api/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "apis/engage-api/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-customer-campaign-match:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-customer-campaign-match >>,<< pipeline.parameters.deploy-everything >>]          
+    jobs:
+      - build-go:
+          path: "jobs/customer-campaign-match/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - test:
+          path: "jobs/customer-campaign-match/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "jobs/customer-campaign-match/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "jobs/customer-campaign-match/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-engage-control-api:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-engage-control-api >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - build-go:
+          path: "apis/engage-control-api/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - test:
+          path: "apis/engage-control-api/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "apis/engage-control-api/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "apis/engage-control-api/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-engage-delivery:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-engage-delivery >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - build-go:
+          path: "jobs/engage-delivery/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - test:
+          path: "jobs/engage-delivery/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "jobs/engage-delivery/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "jobs/engage-delivery/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-datalake:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-datalake >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - build-go:
+          path: "jobs/datalake/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "jobs/datalake/"
+          requires:
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "jobs/datalake/"
+          requires:
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-action-scheduler:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-action-scheduler >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - build-go:
+          path: "jobs/action-scheduler/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - test:
+          path: "jobs/action-scheduler/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "jobs/action-scheduler/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "jobs/action-scheduler/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-action-trigger:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-action-trigger >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - build-go:
+          path: "jobs/action-trigger/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - test:
+          path: "jobs/action-trigger/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "jobs/action-trigger/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "jobs/action-trigger/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
+
+  deploy-action-identifier:
+    when:
+      and:
+        - or: [<< pipeline.parameters.deploy-action-identifier >>, << pipeline.parameters.deploy-everything >>]
+    jobs:
+      - build-go:
+          path: "jobs/action-identifier/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+      - test:
+          path: "jobs/action-identifier/"
+          filters:
+            tags:
+              only: /v.*.iq.*/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "DEVELOPMENT"
+          path: "jobs/action-identifier/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.dev/
+            branches:
+              ignore: /.*/
+
+      - deploy-serverless:
+          stage: "PRODUCTION"
+          path: "jobs/action-identifier/"
+          requires:
+            - test
+            - build-go
+          context:
+            - iq-serverless
+          filters:
+            tags:
+              only: /v.*.iq.prd/
+            branches:
+              ignore: /.*/
